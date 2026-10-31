@@ -19,6 +19,9 @@
   .buka{display:block;margin-top:10px;text-align:center;color:#2563eb}
   .err{color:#b91c1c}
   small{color:#666}
+  .item{margin-bottom:14px}
+  .item small{display:block;margin-bottom:4px}
+  button.all{background:#7c3aed;width:100%;margin-bottom:14px}
 </style>
 </head>
 <body>
@@ -56,16 +59,39 @@ function parseCSV(text){
   return rows;
 }
 
-fetch('data.csv').then(r => r.text()).then(t => {
+// Pecah teks yang isinya beberapa link menempel jadi satu (https://...https://...)
+function pecahLink(teks){
+  return teks.split(/(?=https?:\/\/)/i)
+    .map(x => x.replace(/[\s,;]+$/, '').trim())   // buang spasi/koma/titik koma di ujung
+    .filter(x => /^https?:\/\//i.test(x));
+}
+
+// Baca sebagai UTF-8; kalau gagal (file dari Excel/Windows) pakai windows-1252
+function dekode(buf){
+  try { return new TextDecoder('utf-8', {fatal:true}).decode(buf); }
+  catch(e){ return new TextDecoder('windows-1252').decode(buf); }
+}
+
+async function muatCSV(){
+  for (const nama of ['hasil.csv', 'data.csv']){
+    try {
+      const r = await fetch(nama);
+      if (!r.ok) continue;
+      return dekode(await r.arrayBuffer());
+    } catch(e){}
+  }
+  throw new Error('csv tidak ditemukan');
+}
+
+muatCSV().then(t => {
   parseCSV(t.replace(/^\uFEFF/, '')).forEach(r => {
-    if (r.length >= 2 && r[0].trim()){
-      const links = r.slice(1).map(x => x.trim()).filter(Boolean);
-      if (links.length) data.set(r[0].trim(), links);
-    }
+    const key = (r[0] || '').trim();
+    if (!key || r.length < 2) return;
+    data.set(key, pecahLink(r.slice(1).join(',')));
   });
   document.getElementById('info').textContent = data.size + ' data dimuat.';
 }).catch(() => {
-  document.getElementById('info').textContent = 'Gagal memuat data.csv';
+  document.getElementById('info').textContent = 'Gagal memuat hasil.csv';
 });
 
 async function salinTeks(link){
@@ -86,16 +112,30 @@ function cari(){
   hasil.style.display = 'block';
   if (!key){ hasil.innerHTML = '<span class="err">Isi nomor dulu.</span>'; return; }
   const links = data.get(key) ?? data.get(String(parseInt(key, 10)));
-  if (!links){ hasil.innerHTML = '<span class="err">Nomor ' + key.replace(/</g,'&lt;') + ' tidak ditemukan.</span>'; return; }
+  const aman = key.replace(/</g,'&lt;');
+  if (!links){ hasil.innerHTML = '<span class="err">Nomor ' + aman + ' tidak ditemukan.</span>'; return; }
+  if (!links.length){ hasil.innerHTML = '<span class="err">Nomor ' + aman + ' ada, tapi link-nya kosong.</span>'; return; }
   hasil.innerHTML = '';
 
-  const semua = [];
+  const salinan = [];
+
+  if (links.length > 1){
+    const all = document.createElement('button');
+    all.className = 'all';
+    all.textContent = 'Salin semua seperti di CSV (' + links.length + ' link)';
+    all.onclick = async () => {
+      const ok = await salinTeks(links.join(''));
+      all.textContent = ok ? '✓ Semua tersalin' : 'Gagal menyalin';
+    };
+    hasil.append(all);
+  }
+
   links.forEach((link, i) => {
     const wrap = document.createElement('div');
-    wrap.style.marginBottom = '14px';
+    wrap.className = 'item';
 
     const judul = document.createElement('small');
-    judul.textContent = 'Link ' + (i + 1) + (link.includes('s.shopee') ? ' (pendek)' : '');
+    judul.textContent = 'Link ' + (i + 1) + (/\/\/s\.shopee\./.test(link) ? ' (pendek)' : '');
 
     const tap = document.createElement('div');
     tap.className = 'tap';
@@ -110,10 +150,9 @@ function cari(){
       const ok = await salinTeks(link);
       status.textContent = ok ? '✓ Tersalin' : 'Gagal menyalin, coba ketuk lagi';
       tap.classList.toggle('done', ok);
-      return ok;
     };
     tap.onclick = salin;
-    semua.push(salin);
+    salinan.push(salin);
 
     const buka = document.createElement('a');
     buka.href = link; buka.target = '_blank'; buka.rel = 'noopener';
@@ -123,7 +162,11 @@ function cari(){
     hasil.append(wrap);
   });
 
-  semua[0](); // link pertama otomatis tersalin saat Cari ditekan
+  salinTeks(links.join('')).then(ok => {
+    const b = hasil.querySelector('button.all');
+    if (b) b.textContent = ok ? '✓ Semua tersalin (' + links.length + ' link)' : 'Gagal menyalin, ketuk di sini';
+    else if (ok) { const st = hasil.querySelector('.status'); const tp = hasil.querySelector('.tap'); if (st) st.textContent = '✓ Tersalin'; if (tp) tp.classList.add('done'); }
+  }); // semua link otomatis tersalin (sama persis seperti isi CSV) saat Cari ditekan
 }
 
 document.getElementById('cari').onclick = cari;
