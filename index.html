@@ -58,50 +58,72 @@ function parseCSV(text){
 
 fetch('data.csv').then(r => r.text()).then(t => {
   parseCSV(t.replace(/^\uFEFF/, '')).forEach(r => {
-    if (r.length >= 2 && r[0].trim()) data.set(r[0].trim(), r[1].trim());
+    if (r.length >= 2 && r[0].trim()){
+      const links = r.slice(1).map(x => x.trim()).filter(Boolean);
+      if (links.length) data.set(r[0].trim(), links);
+    }
   });
   document.getElementById('info').textContent = data.size + ' data dimuat.';
 }).catch(() => {
   document.getElementById('info').textContent = 'Gagal memuat data.csv';
 });
 
+async function salinTeks(link){
+  try { await navigator.clipboard.writeText(link); return true; }
+  catch(e){
+    const t = document.createElement('textarea');
+    t.value = link; t.style.position = 'fixed'; t.style.opacity = '0';
+    document.body.appendChild(t); t.focus(); t.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch(_){}
+    t.remove();
+    return ok;
+  }
+}
+
 function cari(){
   const key = q.value.trim();
   hasil.style.display = 'block';
   if (!key){ hasil.innerHTML = '<span class="err">Isi nomor dulu.</span>'; return; }
-  const link = data.get(key) ?? data.get(String(parseInt(key, 10)));
-  if (!link){ hasil.innerHTML = '<span class="err">Nomor ' + key.replace(/</g,'&lt;') + ' tidak ditemukan.</span>'; return; }
+  const links = data.get(key) ?? data.get(String(parseInt(key, 10)));
+  if (!links){ hasil.innerHTML = '<span class="err">Nomor ' + key.replace(/</g,'&lt;') + ' tidak ditemukan.</span>'; return; }
   hasil.innerHTML = '';
-  const tap = document.createElement('div');
-  tap.className = 'tap';
-  const teks = document.createElement('div');
-  teks.textContent = link;
-  const status = document.createElement('div');
-  status.className = 'status';
-  tap.append(teks, status);
 
-  const salin = async () => {
-    let ok = false;
-    try { await navigator.clipboard.writeText(link); ok = true; }
-    catch(e){
-      const t = document.createElement('textarea');
-      t.value = link; t.style.position = 'fixed'; t.style.opacity = '0';
-      document.body.appendChild(t); t.focus(); t.select();
-      try { ok = document.execCommand('copy'); } catch(_){}
-      t.remove();
-    }
-    status.textContent = ok ? '✓ Tersalin' : 'Gagal menyalin, coba ketuk lagi';
-    tap.classList.toggle('done', ok);
-  };
-  tap.onclick = salin;
+  const semua = [];
+  links.forEach((link, i) => {
+    const wrap = document.createElement('div');
+    wrap.style.marginBottom = '14px';
 
-  const buka = document.createElement('a');
-  buka.href = link; buka.target = '_blank'; buka.rel = 'noopener';
-  buka.className = 'buka'; buka.textContent = 'Buka link';
+    const judul = document.createElement('small');
+    judul.textContent = 'Link ' + (i + 1) + (link.includes('s.shopee') ? ' (pendek)' : '');
 
-  hasil.append(tap, buka);
-  status.textContent = 'Ketuk kotak ini untuk menyalin';
-  salin(); // otomatis tersalin saat tombol Cari ditekan
+    const tap = document.createElement('div');
+    tap.className = 'tap';
+    const teks = document.createElement('div');
+    teks.textContent = link;
+    const status = document.createElement('div');
+    status.className = 'status';
+    status.textContent = 'Ketuk kotak ini untuk menyalin';
+    tap.append(teks, status);
+
+    const salin = async () => {
+      const ok = await salinTeks(link);
+      status.textContent = ok ? '✓ Tersalin' : 'Gagal menyalin, coba ketuk lagi';
+      tap.classList.toggle('done', ok);
+      return ok;
+    };
+    tap.onclick = salin;
+    semua.push(salin);
+
+    const buka = document.createElement('a');
+    buka.href = link; buka.target = '_blank'; buka.rel = 'noopener';
+    buka.className = 'buka'; buka.textContent = 'Buka link';
+
+    wrap.append(judul, tap, buka);
+    hasil.append(wrap);
+  });
+
+  semua[0](); // link pertama otomatis tersalin saat Cari ditekan
 }
 
 document.getElementById('cari').onclick = cari;
